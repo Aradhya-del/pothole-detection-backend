@@ -6,7 +6,7 @@ import numpy as np
 app = Flask(__name__)
 
 # Load your trained model
-model = YOLO("../runs/detect/train/weights/best.pt")
+model = YOLO("best.pt")
 
 @app.route("/detect", methods=["POST"])
 def detect():
