@@ -6,17 +6,17 @@ import os
 
 app = Flask(__name__)
 
+print("🚀 App is starting...")
+
 # ✅ Model path
 MODEL_PATH = "yolov8n.pt"
 
-# ✅ Check model exists
+# ✅ DO NOT crash app if model missing
 if not os.path.exists(MODEL_PATH):
-    raise FileNotFoundError("Model file not found: yolov8n.pt")
+    print("⚠️ WARNING: yolov8n.pt not found at startup")
 
-# ✅ Load model with debug
-print("Loading model...")
-model = YOLO(MODEL_PATH)
-print("Model loaded successfully")
+# ✅ Lazy loading (IMPORTANT)
+model = None
 
 
 # ✅ Home route
@@ -28,21 +28,30 @@ def home():
 # ✅ Detection route
 @app.route("/detect", methods=["POST"])
 def detect():
+    global model
+
     try:
+        # 🔥 Load model only when first request comes
+        if model is None:
+            print("🔄 Loading model on first request...")
+            model = YOLO(MODEL_PATH, task="detect")
+            print("✅ Model loaded successfully")
+
+        # ✅ Check image
         if 'image' not in request.files:
             return jsonify({"error": "No image uploaded"}), 400
 
         file = request.files["image"]
         img_bytes = file.read()
 
-        # Convert to OpenCV image
+        # ✅ Convert to OpenCV image
         npimg = np.frombuffer(img_bytes, np.uint8)
         img = cv2.imdecode(npimg, cv2.IMREAD_COLOR)
 
         if img is None:
             return jsonify({"error": "Invalid image"}), 400
 
-        # ✅ Resize (VERY IMPORTANT for Render memory)
+        # ✅ Resize (VERY IMPORTANT for Render)
         img = cv2.resize(img, (640, 640))
 
         # ✅ Run model
@@ -70,11 +79,11 @@ def detect():
         return jsonify(detections)
 
     except Exception as e:
-        print("ERROR:", str(e))
+        print("❌ ERROR:", str(e))
         return jsonify({"error": str(e)}), 500
 
 
-# ✅ Render dynamic port
+# ✅ Local run (Render ignores this, Gunicorn handles production)
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
