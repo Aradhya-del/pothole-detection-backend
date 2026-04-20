@@ -9,11 +9,11 @@ app = Flask(__name__)
 print("🚀 App is starting...")
 
 # ✅ Model path
-MODEL_PATH = "yolov8n.pt"
+MODEL_PATH = "best.pt"
 
 # ✅ DO NOT crash app if model missing
 if not os.path.exists(MODEL_PATH):
-    print("⚠️ WARNING: yolov8n.pt not found at startup")
+    print("⚠️ WARNING: best.pt not found at startup")
 
 # ✅ Lazy loading (IMPORTANT)
 model = None
@@ -55,7 +55,7 @@ def detect():
         img = cv2.resize(img, (640, 640))
 
         # ✅ Run model
-        results = model(img)
+        results = model(img, imgsz=320)
 
         detections = []
 
