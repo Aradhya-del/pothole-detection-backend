@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Pothole Detection Dashboard</title>
+
+    <!-- Leaflet CSS -->
+    <link
+        rel="stylesheet"
+        href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    >
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #f4f6f8;
+            color: #222;
+        }
+
+        header {
+            background: #1f2937;
+            color: white;
+            padding: 18px 25px;
+        }
+
+        header h1 {
+            margin: 0;
+            font-size: 24px;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 15px;
+            padding: 20px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 10px;
+            padding: 18px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+        }
+
+        .card h3 {
+            margin: 0 0 8px;
+            font-size: 15px;
+            color: #666;
+        }
+
+        .card p {
+            margin: 0;
+            font-size: 28px;
+            font-weight: bold;
+        }
+
+        #map {
+            height: 550px;
+            margin: 0 20px 20px;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+        }
+
+        .pothole-image {
+            width: 220px;
+            max-height: 150px;
+            object-fit: cover;
+            border-radius: 6px;
+            margin-top: 8px;
+        }
+
+        .filter-bar {
+    background: white;
+    margin: 20px 20px 0;
+    padding: 15px 18px;
+    border-radius: 10px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.filter-bar label {
+    font-weight: bold;
+}
+
+.filter-bar select {
+    padding: 8px 12px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    font-size: 14px;
+}
+
+        @media (max-width: 800px) {
+            .stats {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        @media (max-width: 500px) {
+            .stats {
+                grid-template-columns: 1fr;
+            }
+
+            #map {
+                height: 450px;
+                margin: 0 10px 10px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+<header>
+    <h1>🚧 Smart Pothole Detection Dashboard</h1>
+</header>
+
+<section class="stats">
+    <div class="filter-bar">
+    <label for="severityFilter">Severity:</label>
+
+    <select id="severityFilter">
+        <option value="ALL">All</option>
+        <option value="HIGH">High</option>
+        <option value="MEDIUM">Medium</option>
+        <option value="LOW">Low</option>
+    </select>
+</div>
+
+    <div class="card">
+        <h3>Total Potholes</h3>
+        <p id="totalPotholes">0</p>
+    </div>
+
+    <div class="card">
+        <h3>High Severity</h3>
+        <p id="highPotholes">0</p>
+    </div>
+
+    <div class="card">
+        <h3>Medium Severity</h3>
+        <p id="mediumPotholes">0</p>
+    </div>
+
+    <div class="card">
+        <h3>Low Severity</h3>
+        <p id="lowPotholes">0</p>
+    </div>
+
+</section>
+
+<div id="map"></div>
+
+<!-- Leaflet JS -->
+<script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js">
+</script>
+
+<script>
+
+    // ==============================
+    // INITIALIZE MAP
+    // ==============================
+
+    const map = L.map("map").setView(
+        [12.8760659, 74.9380964],
+        17
+    );
+
+    L.tileLayer(
+        "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+        {
+            maxZoom: 19,
+            attribution: "&copy; OpenStreetMap contributors"
+        }
+    ).addTo(map);
+
+
+    // ==============================
+    // LOAD POTHOLES
+    // ==============================
+
+    let allPotholes = [];
+let markers = [];
+
+async function loadPotholes() {
+
+    try {
+
+        const response = await fetch("/potholes");
+
+        if (!response.ok) {
+            throw new Error("Failed to load potholes");
+        }
+
+        allPotholes = await response.json();
+
+        console.log("Potholes:", allPotholes);
+
+        updateDashboard();
+
+    } catch (error) {
+
+        console.error(
+            "Error loading potholes:",
+            error
+        );
+    }
+}
+
+
+// ==============================
+// UPDATE DASHBOARD
+// ==============================
+
+function updateDashboard() {
+
+    const selectedSeverity =
+        document.getElementById("severityFilter").value;
+
+    // Filter potholes
+    let filteredPotholes = allPotholes;
+
+    if (selectedSeverity !== "ALL") {
+
+        filteredPotholes =
+            allPotholes.filter(
+                pothole =>
+                    pothole.severity === selectedSeverity
+            );
+    }
+
+
+    // ==============================
+    // STATISTICS
+    // ==============================
+
+    document.getElementById(
+        "totalPotholes"
+    ).textContent = filteredPotholes.length;
+
+    document.getElementById(
+        "highPotholes"
+    ).textContent =
+        filteredPotholes.filter(
+            p => p.severity === "HIGH"
+        ).length;
+
+    document.getElementById(
+        "mediumPotholes"
+    ).textContent =
+        filteredPotholes.filter(
+            p => p.severity === "MEDIUM"
+        ).length;
+
+    document.getElementById(
+        "lowPotholes"
+    ).textContent =
+        filteredPotholes.filter(
+            p => p.severity === "LOW"
+        ).length;
+
+
+    // ==============================
+    // REMOVE OLD MARKERS
+    // ==============================
+
+    markers.forEach(marker => {
+        map.removeLayer(marker);
+    });
+
+    markers = [];
+
+
+    // ==============================
+    // ADD FILTERED MARKERS
+    // ==============================
+
+    filteredPotholes.forEach(pothole => {
+
+        if (
+            pothole.latitude == null ||
+            pothole.longitude == null
+        ) {
+            return;
+        }
+
+        const popupContent = `
+            <div>
+
+                <h3>Pothole #${pothole.id}</h3>
+
+                <b>Severity:</b>
+                ${pothole.severity}<br>
+
+                <b>Confidence:</b>
+                ${(pothole.confidence * 100).toFixed(1)}%<br>
+
+                <b>Confirmations:</b>
+                ${pothole.confirmation_count}<br>
+
+                <b>Latitude:</b>
+                ${pothole.latitude}<br>
+
+                <b>Longitude:</b>
+                ${pothole.longitude}<br>
+
+                <b>Detected:</b>
+                ${pothole.created_at}<br>
+
+                ${
+                    pothole.image_path
+                    ? `
+                        <img
+                            class="pothole-image"
+                            src="/${pothole.image_path.replace(/\\/g, "/")}"
+                            alt="Pothole evidence"
+                        >
+                      `
+                    : ""
+                }
+
+            </div>
+        `;
+
+        const marker = L.marker([
+            pothole.latitude,
+            pothole.longitude
+        ])
+        .addTo(map)
+        .bindPopup(popupContent);
+
+        markers.push(marker);
+    });
+}
+
+
+// ==============================
+// FILTER CHANGE
+// ==============================
+
+document
+    .getElementById("severityFilter")
+    .addEventListener(
+        "change",
+        updateDashboard
+    );
+
+
+// Load data
+loadPotholes();
+// Auto-refresh dashboard every 5 seconds
+setInterval(loadPotholes, 5000);
+
+</script>
+
+</body>
+</html>
