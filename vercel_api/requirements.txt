@@ -2,3 +2,4 @@ flask
 onnxruntime
 opencv-python-headless
 numpy
+requests
