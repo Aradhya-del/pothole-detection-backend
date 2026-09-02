@@ -120,7 +120,8 @@ def nearby_potholes():
                 float(pothole["longitude"])
             )
 
-            if distance <= 100:
+            # 200 meter warning radius
+            if distance <= 200:
 
                 nearby.append({
                     "id": pothole["id"],
@@ -238,7 +239,7 @@ def detect():
             box_height = float(prediction[3])
             confidence = float(prediction[4])
 
-            if confidence < 0.40:
+            if confidence < 0.30:
                 continue
 
             x1 = x_center - box_width / 2
@@ -307,8 +308,8 @@ def detect():
             indices = cv2.dnn.NMSBoxes(
                 boxes,
                 confidences,
-                0.40,
-                0.45
+                0.30,
+                0.40
             )
 
             for index in indices:
