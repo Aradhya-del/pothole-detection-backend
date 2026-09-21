@@ -5,6 +5,7 @@ import numpy as np
 import os
 import requests
 import math
+import threading
 
 app = Flask(__name__)
 
@@ -76,6 +77,81 @@ def calculate_distance(lat1, lon1, lat2, lon2):
     )
 
     return earth_radius * c
+
+
+def _save_to_supabase(latitude, longitude, det_confidence, det_severity, location_name):
+    """
+    Fire-and-forget: check for duplicate potholes and insert/update in Supabase.
+    Runs in a background thread so it does NOT block the /detect response.
+    """
+    try:
+        existing_response = requests.get(
+            f"{SUPABASE_URL}/rest/v1/potholes"
+            "?select=id,latitude,longitude,confirmation_count",
+            headers=SUPABASE_HEADERS,
+            timeout=10
+        )
+
+        duplicate_id = None
+        duplicate_count = 0
+
+        if existing_response.status_code == 200:
+            existing_potholes = existing_response.json()
+
+            for pothole in existing_potholes:
+                old_latitude = float(pothole["latitude"])
+                old_longitude = float(pothole["longitude"])
+
+                distance = calculate_distance(
+                    latitude, longitude,
+                    old_latitude, old_longitude
+                )
+
+                if distance <= 10:
+                    duplicate_id = pothole["id"]
+                    duplicate_count = pothole.get("confirmation_count") or 1
+                    break
+
+        if duplicate_id is not None:
+            requests.patch(
+                f"{SUPABASE_URL}/rest/v1/potholes"
+                f"?id=eq.{duplicate_id}",
+                headers=SUPABASE_HEADERS,
+                json={"confirmation_count": duplicate_count + 1},
+                timeout=10
+            )
+            print("Duplicate pothole found:", duplicate_id)
+        else:
+            supabase_data = {
+                "latitude": latitude,
+                "longitude": longitude,
+                "confidence": det_confidence,
+                "severity": det_severity,
+                "confirmation_count": 1,
+                "location_name": location_name
+            }
+
+            insert_response = requests.post(
+                f"{SUPABASE_URL}/rest/v1/potholes",
+                headers={
+                    **SUPABASE_HEADERS,
+                    "Prefer": "return=minimal"
+                },
+                json=supabase_data,
+                timeout=10
+            )
+
+            if insert_response.status_code not in (200, 201):
+                print(
+                    "Supabase insert failed:",
+                    insert_response.status_code,
+                    insert_response.text
+                )
+
+    except Exception as e:
+        print("Background Supabase save error:", str(e))
+
+
 @app.route("/nearby-potholes", methods=["GET"])
 def nearby_potholes():
     try:
@@ -247,44 +323,19 @@ def detect():
             x2 = x_center + box_width / 2
             y2 = y_center + box_height / 2
 
-            x1 = max(
-                0,
-                min(x1, 640)
-            )
+            x1 = max(0, min(x1, 640))
+            y1 = max(0, min(y1, 640))
+            x2 = max(0, min(x2, 640))
+            y2 = max(0, min(y2, 640))
 
-            y1 = max(
-                0,
-                min(y1, 640)
-            )
-
-            x2 = max(
-                0,
-                min(x2, 640)
-            )
-
-            y2 = max(
-                0,
-                min(y2, 640)
-            )
-
-            box_area = (
-                (x2 - x1) *
-                (y2 - y1)
-            )
-
+            box_area = (x2 - x1) * (y2 - y1)
             image_area = 640 * 640
-
-            area_ratio = (
-                box_area /
-                image_area
-            )
+            area_ratio = box_area / image_area
 
             if area_ratio >= 0.123:
                 severity = "HIGH"
-
             elif area_ratio >= 0.05:
                 severity = "MEDIUM"
-
             else:
                 severity = "LOW"
 
@@ -295,13 +346,8 @@ def detect():
                 int(y2 - y1)
             ])
 
-            confidences.append(
-                confidence
-            )
-
-            severities.append(
-                severity
-            )
+            confidences.append(confidence)
+            severities.append(severity)
 
         if boxes:
 
@@ -315,112 +361,35 @@ def detect():
             for index in indices:
 
                 index = int(index)
-
                 x, y, w, h = boxes[index]
 
-
-                existing_response = requests.get(
-                    f"{SUPABASE_URL}/rest/v1/potholes"
-                    "?select=id,latitude,longitude,confirmation_count",
-                    headers=SUPABASE_HEADERS,
-                    timeout=10
-                )
-
-                duplicate_id = None
-                duplicate_count = 0
-
-                if existing_response.status_code == 200:
-
-                    existing_potholes = existing_response.json()
-
-                    for pothole in existing_potholes:
-
-                        old_latitude = float(
-                            pothole["latitude"]
-                        )
-
-                        old_longitude = float(
-                            pothole["longitude"]
-                        )
-
-                        distance = calculate_distance(
-                            latitude,
-                            longitude,
-                            old_latitude,
-                            old_longitude
-                        )
-
-                        if distance <= 10:
-
-                            duplicate_id = pothole["id"]
-
-                            duplicate_count = (
-                                pothole.get(
-                                    "confirmation_count"
-                                ) or 1
-                            )
-
-                            break
-
-                if duplicate_id is not None:
-
-                    update_response = requests.patch(
-                        f"{SUPABASE_URL}/rest/v1/potholes"
-                        f"?id=eq.{duplicate_id}",
-                        headers=SUPABASE_HEADERS,
-                        json={
-                            "confirmation_count":
-                                duplicate_count + 1
-                        },
-                        timeout=10
-                    )
-
-                    print(
-                        "Duplicate pothole found:",
-                        duplicate_id
-                    )
-
-                else:
-
-                    supabase_data = {
-                        "latitude": latitude,
-                        "longitude": longitude,
-                        "confidence": confidences[index],
-                        "severity": severities[index],
-                        "confirmation_count": 1,
-                        "location_name": location_name
-                    }
-
-                    insert_response = requests.post(
-                        f"{SUPABASE_URL}/rest/v1/potholes",
-                        headers={
-                            **SUPABASE_HEADERS,
-                            "Prefer": "return=minimal"
-                        },
-                        json=supabase_data,
-                        timeout=10
-                    )
-
-                    if insert_response.status_code not in (
-                        200,
-                        201
-                    ):
-                        print(
-                            "Supabase insert failed:",
-                            insert_response.status_code,
-                            insert_response.text
-                        )
-
                 detections.append({
-    "bbox": [
-        x / 640.0,
-        y / 640.0,
-        (x + w) / 640.0,
-        (y + h) / 640.0
-    ],
-    "confidence": confidences[index],
-    "severity": severities[index]
-})
+                    "bbox": [
+                        x / 640.0,
+                        y / 640.0,
+                        (x + w) / 640.0,
+                        (y + h) / 640.0
+                    ],
+                    "confidence": confidences[index],
+                    "severity": severities[index]
+                })
+
+            # Fire-and-forget: save the best detection to Supabase
+            # in a background thread (does NOT delay the response)
+            if detections:
+                best = max(detections, key=lambda d: d["confidence"])
+                thread = threading.Thread(
+                    target=_save_to_supabase,
+                    args=(
+                        latitude,
+                        longitude,
+                        best["confidence"],
+                        best["severity"],
+                        location_name,
+                    ),
+                    daemon=True
+                )
+                thread.start()
 
         return jsonify(detections)
 
